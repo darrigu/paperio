@@ -1,0 +1,13 @@
+[project]
+name = "paperio"
+version = "0.1.0"
+description = "Paper.IO like game in the terminal"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "mypy>=1.15.0",
+    "ruff>=0.9.10",
+]
+
+[tool.ruff.format]
+quote-style = "single"
