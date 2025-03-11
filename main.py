@@ -3,11 +3,11 @@ import sys
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import NoReturn, Optional
+from typing import Optional, Self
 
 TARGET_FPS = 60
 ROWS = 20
-COLS = ROWS * 2
+COLS = ROWS
 PLAYER_SPEED = 4
 
 
@@ -30,7 +30,7 @@ class Char:
     bg: Optional[Color] = None
     bold: bool = False
 
-    def __str__(self) -> str:
+    def __str__(self: Self) -> str:
         res = ''
         if self.fg:
             res += f'\033[3{self.fg.value}m'
@@ -49,49 +49,47 @@ class Display:
     buffer2: list[Char]
     current_buffer: list[Char]
 
-    def __init__(self, width: int, height: int):
+    def __init__(self: Self, width: int, height: int) -> None:
         self.width = width
         self.height = height
         self.buffer1 = [Char(' ')] * width * height
         self.buffer2 = [Char(' ')] * width * height
         self.current_buffer = self.buffer1
 
-    def draw(self, x: int, y: int, char: Char):
+    def draw(self: Self, x: int, y: int, char: Char) -> None:
         if 0 <= x < self.width and 0 <= y < self.height:
             self.current_buffer[y * self.width + x] = char
 
-    def draw_text(self, x, y, text):
-        for i, char in enumerate(text):
-            self.draw(x + i, y, Char(char))
-
-    def swap_buffers(self):
+    def swap_buffers(self: Self) -> None:
         if self.current_buffer is self.buffer1:
             self.current_buffer = self.buffer2
         else:
             self.current_buffer = self.buffer1
 
-    def render(self):
+    def render(self: Self) -> None:
         sys.stdout.write('\033[H')
         for y in range(self.height):
-            for x in range(self.width):
-                char = self.current_buffer[y * self.width + x]
+            for x in range(self.width * 2):
+                char = self.current_buffer[y * self.width + x // 2]
                 sys.stdout.write(str(char))
             sys.stdout.write('\n')
         sys.stdout.flush()
 
 
-class Cell(Enum):
-    EMPTY = auto()
+@dataclass
+class Cell:
+    char: Char
 
     @staticmethod
-    def throw_bad(cell: NoReturn) -> NoReturn:
-        assert False, f'Bad Cell type: {cell}'
+    def blank() -> 'Cell':
+        return Cell(Char('.'))
 
-    def render(self, display: Display, x: int, y: int) -> None:
-        if self is Cell.EMPTY:
-            display.draw(x, y, Char('.'))
-        else:
-            Cell.throw_bad(self)
+    @staticmethod
+    def colored(color: Color) -> 'Cell':
+        return Cell(Char('.', bg=color))
+
+    def render(self: Self, display: Display, x: int, y: int) -> None:
+        display.draw(x, y, self.char)
 
 
 class Grid:
@@ -99,18 +97,26 @@ class Grid:
     height: int
     cells: list[Cell]
 
-    def __init__(self, cells: list[list[Cell]]):
-        self.width = len(cells[0])
-        self.height = len(cells)
-        self.cells = sum(cells, [])
+    def __init__(self: Self, width: int, height: int) -> None:
+        self.width = width
+        self.height = height
+        self.cells = [Cell.blank()] * width * height
 
-    def get(self, x: int, y: int) -> Cell:
-        return self.cells[y * self.width + x]
+    def get(self: Self, x: int, y: int) -> Optional[Cell]:
+        if 0 <= x < self.width and 0 <= y < self.height:
+            return self.cells[y * self.width + x]
+        return None
 
-    def render(self, display: Display) -> None:
+    def set(self: Self, x: int, y: int, cell: Cell) -> None:
+        if 0 <= x < self.width and 0 <= y < self.height:
+            self.cells[y * self.width + x] = cell
+
+    def render(self: Self, display: Display) -> None:
         for y in range(self.height):
             for x in range(self.width):
-                self.get(x, y).render(display, x, y)
+                cell = self.get(x, y)
+                assert cell is not None
+                cell.render(display, x, y)
 
 
 class Key(Enum):
@@ -159,11 +165,11 @@ class Player:
     dx: float = 0
     dy: float = 0
 
-    def update(self, frame_time: int) -> None:
+    def update(self: Self, frame_time: int) -> None:
         self.x += self.dx * frame_time * PLAYER_SPEED
         self.y += self.dy * frame_time * PLAYER_SPEED
 
-    def handle_key(self, key: Key) -> None:
+    def handle_key(self: Self, key: Key) -> None:
         if key is Key.UP:
             self.dx, self.dy = 0, -1
         elif key is Key.DOWN:
@@ -173,8 +179,8 @@ class Player:
         elif key is Key.RIGHT:
             self.dx, self.dy = 1, 0
 
-    def render(self, display: Display) -> None:
-        display.draw(math.floor(self.x), math.floor(self.y), Char('@', fg=self.color))
+    def render(self: Self, display: Display) -> None:
+        display.draw(math.floor(self.x), math.floor(self.y), Char('@', bg=self.color))
 
 
 @dataclass
@@ -182,13 +188,19 @@ class Game:
     grid: Grid
     player: Player
 
-    def update(self, frame_time: int) -> None:
+    def update(self: Self, frame_time: int) -> None:
         key = get_key()
         if key:
             self.player.handle_key(key)
         self.player.update(frame_time)
 
-    def render(self, display: Display) -> None:
+        self.grid.set(
+            math.floor(self.player.x),
+            math.floor(self.player.y),
+            Cell.colored(self.player.color),
+        )
+
+    def render(self: Self, display: Display) -> None:
         self.grid.render(display)
         self.player.render(display)
 
@@ -197,18 +209,16 @@ def main():
     display = Display(COLS, ROWS + 1)
 
     game = Game(
-        grid=Grid([[Cell.EMPTY] * COLS] * ROWS),
+        grid=Grid(COLS, ROWS),
         player=Player(x=7, y=5, color=Color.RED),
     )
 
-    start_time = time.time()
     frame_time = 1.0 / TARGET_FPS
-    frame_count = 0
-    fps = TARGET_FPS
 
     if not sys.platform.startswith('win'):
         import termios
         import tty
+
         old_settings = termios.tcgetattr(sys.stdin)
         tty.setcbreak(sys.stdin.fileno())
 
@@ -219,21 +229,13 @@ def main():
 
             game.update(frame_time)
             game.render(display)
-            display.draw_text(0, ROWS, f'FPS: {fps}')
             display.render()
-
-            frame_count += 1
 
             elapsed_time = time.time() - frame_start_time
 
             sleep_time = frame_time - elapsed_time
             if sleep_time > 0:
                 time.sleep(sleep_time)
-
-            if time.time() - start_time >= 1.0:
-                fps = frame_count
-                frame_count = 0
-                start_time = time.time()
     except KeyboardInterrupt:
         pass
     finally:
