@@ -11,27 +11,58 @@ COLS = ROWS * 2
 PLAYER_SPEED = 4
 
 
+class Color(Enum):
+    BLACK = 0
+    RED = 1
+    GREEN = 2
+    YELLOW = 3
+    BLUE = 4
+    MAGENTA = 5
+    CYAN = 6
+    WHITE = 7
+    DEFAULT = 9
+
+
+@dataclass
+class Char:
+    char: str
+    fg: Optional[Color] = None
+    bg: Optional[Color] = None
+    bold: bool = False
+
+    def __str__(self) -> str:
+        res = ''
+        if self.fg:
+            res += f'\033[3{self.fg.value}m'
+        if self.bg:
+            res += f'\033[4{self.bg.value}m'
+        if self.bold:
+            res += '\033[1m'
+        res += self.char
+        return res + '\033[0m'
+
+
 class Display:
     width: int
     height: int
-    buffer1: list[str]
-    buffer2: list[str]
-    current_buffer: list[str]
+    buffer1: list[Char]
+    buffer2: list[Char]
+    current_buffer: list[Char]
 
-    def __init__(self, width, height):
+    def __init__(self, width: int, height: int):
         self.width = width
         self.height = height
-        self.buffer1 = [' '] * width * height
-        self.buffer2 = [' '] * width * height
+        self.buffer1 = [Char(' ')] * width * height
+        self.buffer2 = [Char(' ')] * width * height
         self.current_buffer = self.buffer1
 
-    def draw(self, x, y, char):
+    def draw(self, x: int, y: int, char: Char):
         if 0 <= x < self.width and 0 <= y < self.height:
             self.current_buffer[y * self.width + x] = char
 
     def draw_text(self, x, y, text):
         for i, char in enumerate(text):
-            self.draw(x + i, y, char)
+            self.draw(x + i, y, Char(char))
 
     def swap_buffers(self):
         if self.current_buffer is self.buffer1:
@@ -42,8 +73,10 @@ class Display:
     def render(self):
         sys.stdout.write('\033[H')
         for y in range(self.height):
-            row = self.current_buffer[y * self.width : (y + 1) * self.width]
-            sys.stdout.write(''.join(row) + '\n')
+            for x in range(self.width):
+                char = self.current_buffer[y * self.width + x]
+                sys.stdout.write(str(char))
+            sys.stdout.write('\n')
         sys.stdout.flush()
 
 
@@ -56,7 +89,7 @@ class Cell(Enum):
 
     def render(self, display: Display, x: int, y: int) -> None:
         if self is Cell.EMPTY:
-            display.draw(x, y, '.')
+            display.draw(x, y, Char('.'))
         else:
             Cell.throw_bad(self)
 
@@ -80,30 +113,17 @@ class Grid:
                 self.get(x, y).render(display, x, y)
 
 
-@dataclass
-class Player:
-    x: float
-    y: float
-    dx: float = 0
-    dy: float = 0
-
-    def update(self, frame_time: int) -> None:
-        self.x += self.dx * frame_time * PLAYER_SPEED
-        self.y += self.dy * frame_time * PLAYER_SPEED
-
-    def render(self, display: Display) -> None:
-        display.draw(math.floor(self.x), math.floor(self.y), '@')
-
-
 class Key(Enum):
     UP = auto()
     DOWN = auto()
     LEFT = auto()
     RIGHT = auto()
 
+
 def get_key() -> Optional[Key]:
     if sys.platform.startswith('win'):
         import msvcrt
+
         if msvcrt.kbhit():
             key = msvcrt.getch()
             if key == b'\xe0':
@@ -116,6 +136,7 @@ def get_key() -> Optional[Key]:
                 }.get(key)
     else:
         import select
+
         dr, _, _ = select.select([sys.stdin], [], [], 0)
         if dr:
             key = sys.stdin.read(1)
@@ -131,6 +152,32 @@ def get_key() -> Optional[Key]:
 
 
 @dataclass
+class Player:
+    x: float
+    y: float
+    color: Color
+    dx: float = 0
+    dy: float = 0
+
+    def update(self, frame_time: int) -> None:
+        self.x += self.dx * frame_time * PLAYER_SPEED
+        self.y += self.dy * frame_time * PLAYER_SPEED
+
+    def handle_key(self, key: Key) -> None:
+        if key is Key.UP:
+            self.dx, self.dy = 0, -1
+        elif key is Key.DOWN:
+            self.dx, self.dy = 0, 1
+        elif key is Key.LEFT:
+            self.dx, self.dy = -1, 0
+        elif key is Key.RIGHT:
+            self.dx, self.dy = 1, 0
+
+    def render(self, display: Display) -> None:
+        display.draw(math.floor(self.x), math.floor(self.y), Char('@', fg=self.color))
+
+
+@dataclass
 class Game:
     grid: Grid
     player: Player
@@ -138,15 +185,7 @@ class Game:
     def update(self, frame_time: int) -> None:
         key = get_key()
         if key:
-            if key is Key.UP:
-                self.player.dx, self.player.dy = 0, -1
-            elif key is Key.DOWN:
-                self.player.dx, self.player.dy = 0, 1
-            elif key is Key.LEFT:
-                self.player.dx, self.player.dy = -1, 0
-            elif key is Key.RIGHT:
-                self.player.dx, self.player.dy = 1, 0
-        
+            self.player.handle_key(key)
         self.player.update(frame_time)
 
     def render(self, display: Display) -> None:
@@ -159,7 +198,7 @@ def main():
 
     game = Game(
         grid=Grid([[Cell.EMPTY] * COLS] * ROWS),
-        player=Player(x=7, y=5),
+        player=Player(x=7, y=5, color=Color.RED),
     )
 
     start_time = time.time()
