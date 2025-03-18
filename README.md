@@ -8,7 +8,10 @@ Paper.IO like game in the terminal
 > Make sure to run this program in a proper terminal
 
 ```shell
-$ python main.py
+$ pip install uv         # Install project manager
+$ uv sync                # Sync dependencies
+$ ./server.py            # Start server
+$ ./client.py            # Connect to server
 ```
 
 ## References
