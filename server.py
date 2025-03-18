@@ -331,7 +331,6 @@ def main() -> None:
                     Color.BLUE,
                     Color.MAGENTA,
                     Color.CYAN,
-                    Color.WHITE,
                 ]
             )
             player = Player(
