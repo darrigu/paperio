@@ -217,13 +217,13 @@ class Game:
                 player.update(frame_time)
                 new_x, new_y = player.grid_position()
                 if new_x < 0:
-                    player.x = self.grid.width - 1
-                if new_x >= self.grid.width:
                     player.x = 0
+                if new_x >= self.grid.width:
+                    player.x = self.grid.width - 1
                 if new_y < 0:
-                    player.y = self.grid.height - 1
-                if new_y >= self.grid.height:
                     player.y = 0
+                if new_y >= self.grid.height:
+                    player.y = self.grid.height - 1
 
                 cell = self.grid.get(new_x, new_y)
                 if cell and cell.char.bg == player.color:
