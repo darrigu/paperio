@@ -206,6 +206,9 @@ class Game:
     def remove_player(self, player_id: int) -> None:
         with self.lock:
             if player_id in self.players:
+                for i, cell in enumerate(self.grid.cells):
+                    if cell.char.bg == self.players[player_id].color:
+                        self.grid.cells[i] = Cell.blank()
                 del self.players[player_id]
 
     def update(self, frame_time: float) -> None:
