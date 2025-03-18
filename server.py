@@ -358,4 +358,12 @@ def main() -> None:
 if __name__ == '__main__':
     main()
 
+# TODO: make players die if:
+# - they go out of bounds
+# - they collide outside of their areas
+# TODO: game over screen
+# TODO: start screen
 # TODO: make the map scrollable so clients can have different screen sizes than the server
+# TODO: friend system
+# TODO: ability to create games
+# TODO: multiple game modes
