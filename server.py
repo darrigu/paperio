@@ -316,6 +316,7 @@ def main() -> None:
     clients: dict[int, socket.socket] = {}
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(('', 12345))
     server.listen()
     print('[INFO] Server started on port 12345')
@@ -337,8 +338,8 @@ def main() -> None:
                 ]
             )
             player = Player(
-                x=game.grid.width // 2,
-                y=game.grid.height // 2,
+                x=random.randint(0, game.grid.width - 1),
+                y=random.randint(0, game.grid.height - 1),
                 color=color,
             )
             game.add_player(player_id, player)
