@@ -17,56 +17,22 @@ TARGET_FPS = 20
 PLAYER_SPEED = 4
 
 
-class Color(Enum):
-    BLACK = 0
-    RED = 1
-    GREEN = 2
-    YELLOW = 3
-    BLUE = 4
-    MAGENTA = 5
-    CYAN = 6
-    WHITE = 7
-
-
 @dataclass
-class Char:
-    char: str
-    fg: Optional[Color] = None
-    bg: Optional[Color] = None
-    bold: bool = False
-    inverse: bool = False
-    bright: bool = False
-
-    def __str__(self) -> str:
-        res = ''
-        if self.fg:
-            if self.bright:
-                res += f'\033[9{self.fg.value}m'
-            else:
-                res += f'\033[3{self.fg.value}m'
-        if self.bg:
-            if self.bright:
-                res += f'\033[10{self.bg.value}m'
-            else:
-                res += f'\033[4{self.bg.value}m'
-        if self.bold:
-            res += '\033[1m'
-        if self.inverse:
-            res += '\033[7m'
-        res += self.char
-        res += '\033[0m'
-        return res
+class Color:
+    r: float
+    g: float
+    b: float
 
 
 class Display:
     def __init__(self, width: int, height: int) -> None:
         self.width = width
         self.height = height
-        self.buffer = [Char(' ') for _ in range(width * height)]
+        self.buffer = [Color() for _ in range(width * height)]
 
-    def draw(self, x: int, y: int, char: Char) -> None:
+    def draw(self, x: int, y: int, color: Color) -> None:
         if 0 <= x < self.width and 0 <= y < self.height:
-            self.buffer[y * self.width + x] = char
+            self.buffer[y * self.width + x] = color
 
     def render(self) -> str:
         rows = []
@@ -78,33 +44,20 @@ class Display:
         return '\033[H' + '\n'.join(rows)
 
 
-@dataclass
-class Cell:
-    char: Char
-
-    @staticmethod
-    def blank() -> 'Cell':
-        return Cell(Char(' '))
-
-    @staticmethod
-    def colored(color: Color) -> 'Cell':
-        return Cell(Char(' ', bg=color))
-
-
 class Grid:
     def __init__(self, width: int, height: int) -> None:
         self.width = width
         self.height = height
-        self.cells = [Cell.blank() for _ in range(width * height)]
+        self.cells = [Color() for _ in range(width * height)]
 
-    def get(self, x: int, y: int) -> Optional[Cell]:
+    def get(self, x: int, y: int) -> Optional[Color]:
         if 0 <= x < self.width and 0 <= y < self.height:
             return self.cells[y * self.width + x]
         return None
 
-    def set(self, x: int, y: int, cell: Cell) -> None:
+    def set(self, x: int, y: int, color: Color) -> None:
         if 0 <= x < self.width and 0 <= y < self.height:
-            self.cells[y * self.width + x] = cell
+            self.cells[y * self.width + x] = color
 
     def render(self, display: Display) -> None:
         for y in range(self.height):
@@ -155,7 +108,7 @@ class Grid:
         for y in range(self.height):
             for x in range(self.width):
                 if not visited[y * self.width + x]:
-                    self.set(x, y, Cell.colored(player_color))
+                    self.set(x, y, player_color)
 
 
 class Key(Enum):
@@ -208,7 +161,7 @@ class Game:
             if player_id in self.players:
                 for i, cell in enumerate(self.grid.cells):
                     if cell.char.bg == self.players[player_id].color:
-                        self.grid.cells[i] = Cell.blank()
+                        self.grid.cells[i] = Color()
                 del self.players[player_id]
 
     def update(self, frame_time: float) -> None:
@@ -232,20 +185,16 @@ class Game:
                         player.trail = []
                 else:
                     player.trail.append((new_x, new_y))
-                    self.grid.set(new_x, new_y, Cell.colored(player.color))
+                    self.grid.set(new_x, new_y, player.color)
 
     def render(self, display: Display) -> str:
         self.grid.render(display)
         with self.lock:
             for player in self.players.values():
                 px, py = player.grid_position()
-                char = Char(' ', bg=player.color, bold=True, bright=True)
-                display.draw(px * 2, py, char)
-                display.draw(px * 2 + 1, py, char)
-        status = ' Arrow keys: move | Ctrl+C: quit '
-        status_bar = status.ljust(display.width)
-        for i, ch in enumerate(status_bar):
-            display.draw(i, display.height - 1, Char(ch, inverse=True))
+                color = player.color.brightness(0.8)
+                display.draw(px * 2, py, color)
+                display.draw(px * 2 + 1, py, color)
         return display.render()
 
 
