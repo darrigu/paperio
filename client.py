@@ -1,12 +1,47 @@
 #!/usr/bin/env python3
 
+import pickle
 import select
+import shutil
 import socket
 import sys
 import termios
 import time
 import tty
 from typing import Optional
+
+from server import Color, Game, GenericDisplay, Grid, Player  # noqa: F401
+
+
+class Display(GenericDisplay):
+    width: int
+    height: int
+    buffer: list[Color]
+
+    def __init__(self, width: int, height: int) -> None:
+        self.width = width
+        self.height = height
+        self.buffer = [Color.default() for _ in range(width * height)]
+
+    def draw(self, x: int, y: int, color: Color) -> None:
+        if 0 <= x < self.width and 0 <= y < self.height:
+            self.buffer[y * self.width + x] = color
+
+    def render(self) -> str:
+        rows = []
+        for y in range(self.height):
+            row = ''
+            for x in range(self.width):
+                color = self.buffer[y * self.width + x]
+                from math import floor
+
+                row += '\033[48;2;%d;%d;%dm ' % (
+                    floor(color.r * 255),
+                    floor(color.g * 255),
+                    floor(color.b * 255),
+                )
+            rows.append(row)
+        sys.stdout.write('\033[H' + '\n'.join(rows))
 
 
 def get_key() -> Optional[str]:
@@ -39,6 +74,9 @@ def main() -> None:
     old_settings = termios.tcgetattr(fd)
     tty.setcbreak(fd)
 
+    term_size = shutil.get_terminal_size()
+    display = Display(term_size.columns, term_size.lines)
+
     try:
         while True:
             key = get_key()
@@ -53,7 +91,9 @@ def main() -> None:
                 data = sock.recv(65536)
                 if not data:
                     break
-                print('\033[2J' + data.decode(), end='')
+                game = pickle.loads(data)
+                game.render(display)
+                display.render()
 
             time.sleep(0.01)
     except KeyboardInterrupt:

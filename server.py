@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import math
+import pickle
 import random
 import select
 import shutil
@@ -8,13 +9,21 @@ import socket
 import sys
 import threading
 import time
+from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Optional
+from typing import Any, Optional
 
 TARGET_FPS = 20
 PLAYER_SPEED = 4
+
+
+class Key(Enum):
+    UP = auto()
+    DOWN = auto()
+    LEFT = auto()
+    RIGHT = auto()
 
 
 @dataclass
@@ -23,32 +32,35 @@ class Color:
     g: float
     b: float
 
+    @staticmethod
+    def default() -> 'Color':
+        return Color(0, 0, 0)
 
-class Display:
-    def __init__(self, width: int, height: int) -> None:
-        self.width = width
-        self.height = height
-        self.buffer = [Color() for _ in range(width * height)]
+    def brightness(self, factor: float) -> 'Color':
+        return Color(self.r * factor, self.g * factor, self.b * factor)
 
-    def draw(self, x: int, y: int, color: Color) -> None:
-        if 0 <= x < self.width and 0 <= y < self.height:
-            self.buffer[y * self.width + x] = color
 
-    def render(self) -> str:
-        rows = []
-        for y in range(self.height):
-            row = ''
-            for x in range(self.width):
-                row += str(self.buffer[y * self.width + x])
-            rows.append(row)
-        return '\033[H' + '\n'.join(rows)
+class GenericDisplay(ABC):
+    width: int
+    height: int
+    buffer: list[Color]
+
+    @abstractmethod
+    def draw(self, x: int, y: int, color: Color) -> None: ...
+
+    @abstractmethod
+    def render(self) -> None: ...
 
 
 class Grid:
+    width: int
+    height: int
+    cells: list[Color]
+
     def __init__(self, width: int, height: int) -> None:
         self.width = width
         self.height = height
-        self.cells = [Color() for _ in range(width * height)]
+        self.cells = [Color.default() for _ in range(width * height)]
 
     def get(self, x: int, y: int) -> Optional[Color]:
         if 0 <= x < self.width and 0 <= y < self.height:
@@ -59,12 +71,12 @@ class Grid:
         if 0 <= x < self.width and 0 <= y < self.height:
             self.cells[y * self.width + x] = color
 
-    def render(self, display: Display) -> None:
+    def render(self, display: GenericDisplay) -> None:
         for y in range(self.height):
             for x in range(self.width * 2):
                 cell = self.get(x // 2, y)
                 assert cell
-                display.draw(x, y, cell.char)
+                display.draw(x, y, cell)
 
     def fill_enclosed_area(self, player_color: Color) -> None:
         visited = [False] * (self.width * self.height)
@@ -73,21 +85,13 @@ class Grid:
         for x in range(self.width):
             for y in (0, self.height - 1):
                 cell = self.get(x, y)
-                if (
-                    cell
-                    and cell.char.bg != player_color
-                    and not visited[y * self.width + x]
-                ):
+                if cell and cell != player_color and not visited[y * self.width + x]:
                     visited[y * self.width + x] = True
                     queue.append((x, y))
         for y in range(self.height):
             for x in (0, self.width - 1):
                 cell = self.get(x, y)
-                if (
-                    cell
-                    and cell.char.bg != player_color
-                    and not visited[y * self.width + x]
-                ):
+                if cell and cell != player_color and not visited[y * self.width + x]:
                     visited[y * self.width + x] = True
                     queue.append((x, y))
 
@@ -100,7 +104,7 @@ class Grid:
                     if (
                         cell
                         and (not visited[ny * self.width + nx])
-                        and cell.char.bg != player_color
+                        and cell != player_color
                     ):
                         visited[ny * self.width + nx] = True
                         queue.append((nx, ny))
@@ -109,13 +113,6 @@ class Grid:
             for x in range(self.width):
                 if not visited[y * self.width + x]:
                     self.set(x, y, player_color)
-
-
-class Key(Enum):
-    UP = auto()
-    DOWN = auto()
-    LEFT = auto()
-    RIGHT = auto()
 
 
 @dataclass
@@ -152,6 +149,12 @@ class Game:
         self.lock = threading.Lock()
         self.running = True
 
+    def __getstate__(self) -> Any:
+        return (self.grid, self.players)
+
+    def __setstate__(self, state: Any) -> None:
+        self.grid, self.players = state
+
     def add_player(self, player_id: int, player: Player) -> None:
         with self.lock:
             self.players[player_id] = player
@@ -160,8 +163,8 @@ class Game:
         with self.lock:
             if player_id in self.players:
                 for i, cell in enumerate(self.grid.cells):
-                    if cell.char.bg == self.players[player_id].color:
-                        self.grid.cells[i] = Color()
+                    if cell == self.players[player_id].color:
+                        self.grid.cells[i] = Color.default()
                 del self.players[player_id]
 
     def update(self, frame_time: float) -> None:
@@ -179,7 +182,7 @@ class Game:
                     player.y = self.grid.height - 1
 
                 cell = self.grid.get(new_x, new_y)
-                if cell and cell.char.bg == player.color:
+                if cell and cell == player.color:
                     if player.trail:
                         self.grid.fill_enclosed_area(player.color)
                         player.trail = []
@@ -187,15 +190,13 @@ class Game:
                     player.trail.append((new_x, new_y))
                     self.grid.set(new_x, new_y, player.color)
 
-    def render(self, display: Display) -> str:
+    def render(self, display: GenericDisplay) -> None:
         self.grid.render(display)
-        with self.lock:
-            for player in self.players.values():
-                px, py = player.grid_position()
-                color = player.color.brightness(0.8)
-                display.draw(px * 2, py, color)
-                display.draw(px * 2 + 1, py, color)
-        return display.render()
+        for player in self.players.values():
+            px, py = player.grid_position()
+            color = player.color.brightness(0.8)
+            display.draw(px * 2, py, color)
+            display.draw(px * 2 + 1, py, color)
 
 
 def parse_command(cmd: str) -> Optional[Key]:
@@ -238,16 +239,14 @@ def handle_client(
 
 def game_loop(game: Game, clients: dict[int, socket.socket]) -> None:
     frame_time = 1.0 / TARGET_FPS
-    term_size = shutil.get_terminal_size()
-    display = Display(term_size.columns, term_size.lines)
     while game.running:
         start = time.time()
         game.update(frame_time)
-        frame = game.render(display)
+        data = pickle.dumps(game)
         remove_ids = []
         for pid, conn in clients.items():
             try:
-                conn.sendall(frame.encode())
+                conn.sendall(data)
             except Exception:
                 remove_ids.append(pid)
         for pid in remove_ids:
@@ -278,12 +277,12 @@ def main() -> None:
             player_id = id(conn)
             color = random.choice(
                 [
-                    Color.RED,
-                    Color.GREEN,
-                    Color.YELLOW,
-                    Color.BLUE,
-                    Color.MAGENTA,
-                    Color.CYAN,
+                    Color(0, 0, 1),
+                    Color(0, 1, 0),
+                    Color(0, 1, 1),
+                    Color(1, 0, 0),
+                    Color(1, 0, 1),
+                    Color(1, 1, 0),
                 ]
             )
             player = Player(
