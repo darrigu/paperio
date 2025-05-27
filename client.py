@@ -29,26 +29,20 @@ else:
     import tty
 
     def get_key() -> Optional[str]:
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setcbreak(fd)
-            dr, _, _ = select.select([sys.stdin], [], [], 0)
-            if dr:
-                ch = sys.stdin.read(1)
-                if ch == '\033':
-                    ch += sys.stdin.read(2)
-                    if ch == '\033[A':
-                        return 'UP'
-                    elif ch == '\033[B':
-                        return 'DOWN'
-                    elif ch == '\033[C':
-                        return 'RIGHT'
-                    elif ch == '\033[D':
-                        return 'LEFT'
-                return ch
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        dr, _, _ = select.select([sys.stdin], [], [], 0)
+        if dr:
+            ch = sys.stdin.read(1)
+            if ch == '\033':
+                ch += sys.stdin.read(2)
+                if ch == '\033[A':
+                    return 'UP'
+                elif ch == '\033[B':
+                    return 'DOWN'
+                elif ch == '\033[C':
+                    return 'RIGHT'
+                elif ch == '\033[D':
+                    return 'LEFT'
+            return ch
         return None
 
 
@@ -92,6 +86,11 @@ def main() -> None:
         print('[ERROR] Unable to connect to server: %s' % e, file=sys.stderr)
         return
 
+    if os.name != 'nt':
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        tty.setcbreak(fd)
+
     term_size = shutil.get_terminal_size()
     display = Display(term_size.columns, term_size.lines)
 
@@ -122,6 +121,8 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        if os.name != 'nt':
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         sock.close()
 
 
