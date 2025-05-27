@@ -194,7 +194,7 @@ class Game:
         self.grid.render(display)
         for player in self.players.values():
             px, py = player.grid_position()
-            color = player.color.brightness(0.8)
+            color = player.color.brightness(0.5)
             display.draw(px * 2, py, color)
             display.draw(px * 2 + 1, py, color)
 
