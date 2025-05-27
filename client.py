@@ -1,16 +1,55 @@
 #!/usr/bin/env python3
 
+import os
 import pickle
 import select
 import shutil
 import socket
 import sys
-import termios
 import time
-import tty
 from typing import Optional
 
 from server import Color, Game, GenericDisplay, Grid, Player  # noqa: F401
+
+
+if os.name == 'nt':
+    import msvcrt
+
+    def get_key() -> Optional[str]:
+        if msvcrt.kbhit():
+            msvcrt.getch()
+            c = msvcrt.getch()
+            vals = [72, 77, 80, 75]
+            key = vals.index(ord(c.decode('utf-8')))
+            # TODO: use Key enum from server
+            return {0: 'UP', 1: 'RIGHT', 2: 'DOWN', 3: 'LEFT'}[key]
+        return None
+else:
+    import termios
+    import tty
+
+    def get_key() -> Optional[str]:
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            dr, _, _ = select.select([sys.stdin], [], [], 0)
+            if dr:
+                ch = sys.stdin.read(1)
+                if ch == '\033':
+                    ch += sys.stdin.read(2)
+                    if ch == '\033[A':
+                        return 'UP'
+                    elif ch == '\033[B':
+                        return 'DOWN'
+                    elif ch == '\033[C':
+                        return 'RIGHT'
+                    elif ch == '\033[D':
+                        return 'LEFT'
+                return ch
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return None
 
 
 class Display(GenericDisplay):
@@ -44,23 +83,6 @@ class Display(GenericDisplay):
         sys.stdout.write('\033[H' + '\n'.join(rows))
 
 
-def get_key() -> Optional[str]:
-    dr, _, _ = select.select([sys.stdin], [], [], 0)
-    if dr:
-        ch = sys.stdin.read(1)
-        if ch == '\033':
-            ch += sys.stdin.read(2)
-            if ch == '\033[A':
-                return 'UP'
-            elif ch == '\033[B':
-                return 'DOWN'
-            elif ch == '\033[C':
-                return 'RIGHT'
-            elif ch == '\033[D':
-                return 'LEFT'
-    return None
-
-
 def main() -> None:
     server_addr = ('localhost', 12345)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -69,10 +91,6 @@ def main() -> None:
     except Exception as e:
         print('[ERROR] Unable to connect to server: %s' % e, file=sys.stderr)
         return
-
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    tty.setcbreak(fd)
 
     term_size = shutil.get_terminal_size()
     display = Display(term_size.columns, term_size.lines)
@@ -83,23 +101,27 @@ def main() -> None:
             if key:
                 try:
                     sock.sendall(key.encode())
-                except Exception:
-                    break
+                except Exception as e:
+                    print('[ERROR] Unable to send data: %s' % e, file=sys.stderr)
+                    exit(1)
 
             rlist, _, _ = select.select([sock], [], [], 0.05)
             if sock in rlist:
                 data = sock.recv(65536)
                 if not data:
                     break
-                game = pickle.loads(data)
-                game.render(display)
-                display.render()
+                try:
+                    game = pickle.loads(data)
+                    game.render(display)
+                    display.render()
+                except (pickle.UnpicklingError, EOFError) as e: 
+                    print('[ERROR] Failed to unpickle data: %s' % e, file=sys.stderr)
+                    exit(1)
 
             time.sleep(0.01)
     except KeyboardInterrupt:
         pass
     finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         sock.close()
 
 
